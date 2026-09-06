@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MP4 → DPG Converter (Nintendo DS / Moonshell)</title>
+<style>
+  :root{
+    --bg:#0f1220; --panel:#171b2e; --panel2:#1e2440; --ink:#e8ecff; --muted:#98a0c8;
+    --line:#2a3157; --accent:#6ea8ff; --accent2:#8affc1; --danger:#ff6b7d; --warn:#ffd166;
+    --ok:#57e08a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0c0f1c,#0f1220 40%);color:var(--ink);
+    font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent)}
+  .wrap{max-width:920px;margin:0 auto;padding:28px 20px 80px}
+  header h1{font-size:22px;margin:0 0 4px}
+  header p{margin:0;color:var(--muted)}
+  .badge{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+    color:var(--muted);border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px;margin-top:18px}
+  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    margin:0 0 14px}
+  #drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;
+    cursor:pointer;transition:.15s;background:var(--panel2)}
+  #drop.hot{border-color:var(--accent);background:#20284a}
+  #drop b{color:var(--ink)} #drop small{color:var(--muted)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  label.field{display:block;font-size:12px;color:var(--muted);margin:0 0 5px}
+  select,input[type=text]{width:100%;background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit}
+  .row{display:flex;gap:10px;align-items:center}
+  .row.wrap2{flex-wrap:wrap}
+  .chk{display:flex;gap:9px;align-items:flex-start;background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .chk input{margin-top:2px}
+  .chk span small{display:block;color:var(--muted)}
+  .btn{appearance:none;border:0;border-radius:10px;padding:12px 18px;font:600 14px/1 inherit;
+    cursor:pointer;color:#0b1020;background:var(--accent)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  .btn.big{width:100%;padding:15px;font-size:16px}
+  .btnrow{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .progwrap{height:12px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:999px;overflow:hidden;margin:6px 0 4px}
+  .prog{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    transition:width .2s}
+  #status{color:var(--muted);min-height:18px}
+  pre#log{background:#0a0d18;border:1px solid var(--line);border-radius:10px;padding:12px;
+    max-height:230px;overflow:auto;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;
+    color:#a9b3dd;white-space:pre-wrap;word-break:break-word}
+  .note{background:#1a2140;border:1px solid var(--line);border-left:3px solid var(--accent);
+    padding:12px 14px;border-radius:8px;color:#c7cff2;font-size:13px}
+  .warnbox{background:#2a2033;border-left:3px solid var(--warn);color:#ffe6a6}
+  .okpill{color:var(--ok)} .badpill{color:var(--danger)}
+  .filepill{display:none;margin-top:12px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px}
+  .filepill b{color:var(--ink)}
+  .muted{color:var(--muted)}
+  .kbd{background:#0a0d18;border:1px solid var(--line);border-radius:6px;padding:2px 7px;
+    font:12px ui-monospace,Consolas,monospace;color:#cdd6ff}
+  .dlbtn{display:none}
+  hr.sep{border:0;border-top:1px solid var(--line);margin:16px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MP4 → DPG Converter <span class="badge">Nintendo DS · Moonshell · R4</span></h1>
+    <p>Converts video to 256×192 MPEG‑1 with DS‑friendly audio and packs it into a <b>.dpg</b>
+       file you can drop on your R4 card. Runs 100% in your browser — no upload, nothing leaves your PC.</p>
+  </header>
+
+  <div id="fileWarn" class="card warnbox" style="display:none">
+    <b>⚠ Open this over a local web server, not by double‑clicking.</b><br>
+    The video engine (ffmpeg.wasm) can't start from a <span class="kbd">file://</span> page.
+    In this folder run one of these, then open the printed URL:
+    <div style="margin-top:8px">
+      <span class="kbd">python -m http.server 8000</span>  →  <span class="kbd">http://localhost:8000/dpg-converter.html</span><br>
+      <span class="muted">…or</span> <span class="kbd">npx serve</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>1 · Choose your video</h2>
+    <div id="drop">
+      <b>Drop an .mp4 here</b> or click to browse<br>
+      <small>Also accepts .mkv / .mov / .avi / .webm — anything ffmpeg can read</small>
+      <input id="file" type="file" accept="video/*,.mp4,.mkv,.mov,.avi,.webm" hidden>
+    </div>
+    <div id="filepill" class="filepill"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Settings</h2>
+    <div class="grid">
+      <div>
+        <label class="field" for="ver">DPG format / audio</label>
+        <select id="ver">
+          <option value="0" selected>DPG0 — 16‑bit PCM stereo (classic Moonshell 1.x)</option>
+          <option value="2">DPG2 — MP2 audio + seek index (Moonshell 1.x)</option>
+          <option value="4">DPG4 — MP2 + thumbnail + seek (Moonshell 2)</option>
+        </select>
+      </div>
+      <div>
+        <label class="field" for="rate">Audio sample rate (Hz)</label>
+        <select id="rate">
+          <option value="32768" selected>32768 (32.768 kHz — DPG PCM standard)</option>
+          <option value="32000">32000 (MP2 standard)</option>
+          <option value="22050">22050</option>
+          <option value="44100">44100</option>
+        </select>
+      </div>
+      <div>
+        <label class="field" for="fps">Frame rate (fps)</label>
+        <select id="fps">
+          <option value="10">10 — smallest / smoothest decode</option>
+          <option value="12">12</option>
+          <option value="15" selected>15 — classic DS default</option>
+          <option value="18">18</option>
+          <option value="20">20</option>
+          <option value="24">24 — smoothest motion / largest</option>
+        </select>
+      </div>
+      <div>
+        <label class="field" for="vbr">Video bitrate</label>
+        <select id="vbr">
+          <option value="256">256 kbps — small files</option>
+          <option value="384">384 kbps</option>
+          <option value="512" selected>512 kbps — balanced</option>
+          <option value="768">768 kbps</option>
+          <option value="1024">1024 kbps — best quality</option>
+        </select>
+      </div>
+      <div>
+        <label class="field" for="ss">Start time (optional, hh:mm:ss)</label>
+        <input id="ss" type="text" placeholder="e.g. 00:01:30 — leave blank for start">
+      </div>
+      <div>
+        <label class="field" for="dur">Duration (optional, seconds or hh:mm:ss)</label>
+        <input id="dur" type="text" placeholder="e.g. 90 — leave blank for whole video">
+      </div>
+    </div>
+    <div class="row wrap2" style="margin-top:14px">
+      <label class="chk" style="flex:1;min-width:250px">
+        <input id="color16" type="checkbox" checked>
+        <span><b>Reduce each frame to 16‑bit color</b>
+          <small>Quantizes colors to RGB565 like the DS screen shows.</small></span>
+      </label>
+      <label class="chk" style="flex:1;min-width:250px">
+        <input id="stretch" type="checkbox">
+        <span><b>Stretch to fill 256×192</b>
+          <small>Off = keep aspect ratio with black bars (recommended).</small></span>
+      </label>
+    </div>
+    <div class="note" style="margin-top:14px" id="verNote"></div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Convert</h2>
+    <button id="go" class="btn big" disabled>Load a video first…</button>
+    <a id="dl" class="btn big dlbtn" download>⬇ Download .dpg</a>
+    <div class="progwrap" style="margin-top:16px"><div id="prog" class="prog"></div></div>
+    <div id="status">Idle.</div>
+    <div class="btnrow">
+      <button id="selftest" class="btn ghost">Test encoder support</button>
+      <button id="clearlog" class="btn ghost">Clear log</button>
+    </div>
+    <pre id="log">Engine not loaded yet — the local ffmpeg engine (in the ffmpeg/ folder) starts when you convert or run the self‑test.</pre>
+  </div>
+
+  <div class="card">
+    <h2>Getting it onto your DS</h2>
+    <ol class="muted" style="margin:0;padding-left:18px">
+      <li>Copy the <b>.dpg</b> file to your R4 microSD card (a <span class="kbd">/DPG</span> or
+          <span class="kbd">/MOONSHL2</span> folder is tidy, but anywhere works).</li>
+      <li>Boot the card, open <b>Moonshell</b>, browse to the file, and play.</li>
+      <li>If audio is silent or wrong speed on <b>DPG0/PCM</b>, re‑encode as <b>DPG4 (MP2)</b> — that's
+          what Moonshell 2 expects.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   MP4 -> DPG converter.  Pure client-side, powered by ffmpeg.wasm.
+   DPG container format verified against dpg4x + dpgconv reference sources.
+   ============================================================================ */
+const $ = s => document.querySelector(s);
+const logEl = $('#log'), statusEl = $('#status'), progEl = $('#prog');
+let firstLog = true;
+function log(line){
+  if(firstLog){ logEl.textContent=''; firstLog=false; }
+  logEl.textContent += line + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function setStatus(t){ statusEl.textContent = t; }
+function setProg(p){ progEl.style.width = Math.max(0,Math.min(100,p*100)) + '%'; }
+
+if(location.protocol === 'file:'){ $('#fileWarn').style.display='block'; }
+
+/* ---- Local ffmpeg.wasm engine (same-origin, offline) --------------------
+   The engine lives in ./ffmpeg/ next to this file. Loading it same-origin lets
+   ffmpeg spawn a classic worker (importScripts) — the reliable path. Loading
+   ffmpeg from a CDN forces a module worker that can't import the UMD core. */
+const FF_DIR = 'ffmpeg/';
+function loadEngineScript(){
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src = FF_DIR+'ffmpeg.js';           // relative -> currentScript.src drives worker path
+    s.onload = resolve;
+    s.onerror = ()=>reject(new Error('Could not load '+FF_DIR+'ffmpeg.js — is the ffmpeg/ folder next to this page?'));
+    document.head.appendChild(s);
+  });
+}
+
+let ff=null, loading=null;
+async function getFF(){
+  if(ff) return ff;
+  if(loading) return loading;
+  loading = (async()=>{
+    setStatus('Starting video engine (ffmpeg.wasm, local)…');
+    log('Loading local ffmpeg engine from ./'+FF_DIR+' …');
+    await loadEngineScript();
+    const inst = new FFmpegWASM.FFmpeg();
+    inst.on('log', ({message})=> log(message));
+    inst.on('progress', ({progress})=>{ if(progress>=0&&progress<=1) setProg(progress); });
+    const base = new URL(FF_DIR, location.href).href;   // absolute, same-origin
+    await inst.load({
+      coreURL: base+'ffmpeg-core.js',
+      wasmURL: base+'ffmpeg-core.wasm',
+      // no classWorkerURL: default worker resolves to ./ffmpeg/814.ffmpeg.js (classic)
+    });
+    log('Engine ready. ✔');
+    ff = inst; return inst;
+  })();
+  return loading;
+}
+
+/* ---- File selection ------------------------------------------------------ */
+let chosen=null;
+const drop=$('#drop'), fileInput=$('#file');
+drop.onclick=()=>fileInput.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('hot');};
+drop.ondragleave=()=>drop.classList.remove('hot');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('hot');
+  if(e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]);};
+fileInput.onchange=()=>{ if(fileInput.files[0]) pick(fileInput.files[0]); };
+function pick(f){
+  chosen=f;
+  const mb=(f.size/1048576).toFixed(1);
+  const pill=$('#filepill'); pill.style.display='block';
+  pill.innerHTML=`<b>${escapeHtml(f.name)}</b> · ${mb} MB`;
+  if(f.size>500*1048576){
+    pill.innerHTML+=`<br><span class="badpill">Large file — browser conversion is slow and may run out of memory. Consider trimming with the Start/Duration fields.</span>`;
+  }
+  $('#go').disabled=false; $('#go').textContent='Convert to .dpg';
+  $('#dl').style.display='none'; $('#go').style.display='';
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* ---- Settings hints ------------------------------------------------------ */
+const verNotes={
+  '0':'DPG0 stores raw <b>16‑bit PCM stereo</b> audio — exactly the classic format. Biggest files, plays on original Moonshell (1.x). No seek index.',
+  '2':'DPG2 uses <b>MP2</b> audio (smaller) and adds a GOP index so you can fast‑forward/seek. Moonshell 1.x.',
+  '4':'DPG4 adds an embedded <b>thumbnail</b> + seek index and uses <b>MP2</b> audio. This is what <b>Moonshell 2</b> (common on modern R4 setups) expects.'
+};
+const verSel=$('#ver'), rateSel=$('#rate');
+function syncVer(){
+  $('#verNote').innerHTML=verNotes[verSel.value];
+  // sensible default rate per format
+  rateSel.value = (verSel.value==='0') ? '32768' : '32000';
+}
+verSel.onchange=syncVer; syncVer();
+
+/* ---- DPG assembly -------------------------------------------------------- */
+// Count MPEG-1 picture start codes (00 00 01 00) = frame count.
+function countPictures(v){
+  let n=0;
+  for(let i=0;i+3<v.length;i++){
+    if(v[i]===0&&v[i+1]===0&&v[i+2]===1&&v[i+3]===0x00) n++;
+  }
+  return n;
+}
+// Build GOP seek index: for each GOP header (00 00 01 B8) -> (framesBefore, byteOffset), int32 LE each.
+function buildGop(v){
+  const entries=[]; let frame=0;
+  for(let i=0;i+3<v.length;i++){
+    if(v[i]===0&&v[i+1]===0&&v[i+2]===1){
+      const c=v[i+3];
+      if(c===0x00) frame++;
+      else if(c===0xB8) entries.push([frame,i]);
+    }
+  }
+  if(entries.length===0){ // fall back to the sequence header if no GOP headers found
+    for(let i=0;i+3<v.length;i++){
+      if(v[i]===0&&v[i+1]===0&&v[i+2]===1&&v[i+3]===0xB3){ entries.push([0,i]); break; }
+    }
+  }
+  const buf=new Uint8Array(entries.length*8), dv=new DataView(buf.buffer);
+  entries.forEach((e,k)=>{ dv.setInt32(k*8,e[0],true); dv.setInt32(k*8+4,e[1],true); });
+  return buf;
+}
+// RGB24 (256x192) -> DS thumbnail: 16-bit ARGB1555 little-endian, 98304 bytes.
+function rgbToThumb(rgb){
+  const W=256,H=192, out=new Uint8Array(W*H*2), dv=new DataView(out.buffer);
+  for(let p=0;p<W*H;p++){
+    const r=rgb[p*3]||0, g=rgb[p*3+1]||0, b=rgb[p*3+2]||0;
+    const px=(1<<15)|((b>>3)<<10)|((g>>3)<<5)|(r>>3);
+    dv.setUint16(p*2,px,true);
+  }
+  return out;
+}
+function assembleDPG(o){
+  const V=o.version;
+  const headerSize = V===0?36 : V===4?52 : 48;
+  const thumbSize  = V===4?98304:0;
+  const audioStart = headerSize+thumbSize;
+  const videoStart = audioStart+o.audio.length;
+  const gopStart   = videoStart+o.video.length;
+  const gopSize    = o.gop?o.gop.length:0;
+
+  const header=new Uint8Array(headerSize), dv=new DataView(header.buffer);
+  header.set([0x44,0x50,0x47,0x30+V],0);              // "DPGx"
+  dv.setInt32(4,o.frames,true);                        // frame count
+  dv.setUint16(8,o.fps,false);                         // fps (big-endian short) -> [00,fps]
+  dv.setUint16(10,0,false);
+  dv.setInt32(12,o.sampleRate,true);                   // audio sample rate
+  dv.setInt32(16,o.channelsField,true);               // channels/codec field
+  dv.setInt32(20,audioStart,true);
+  dv.setInt32(24,o.audio.length,true);
+  dv.setInt32(28,videoStart,true);
+  dv.setInt32(32,o.video.length,true);
+  if(V>=2){ dv.setInt32(36,gopStart,true); dv.setInt32(40,gopSize,true); dv.setInt32(44,3,true); } // pixelFormat=RGB24
+  if(V===4){ header.set([0x54,0x48,0x4D,0x30],48); }   // "THM0"
+
+  const parts=[header];
+  if(o.thumb) parts.push(o.thumb);
+  parts.push(o.audio, o.video);
+  if(o.gop) parts.push(o.gop);
+  return new Blob(parts,{type:'application/octet-stream'});
+}
+
+/* ---- Conversion ---------------------------------------------------------- */
+function opts(){
+  return {
+    version:  parseInt(verSel.value,10),
+    fps:      parseInt($('#fps').value,10),
+    vbr:      $('#vbr').value,
+    rate:     parseInt(rateSel.value,10),
+    color16:  $('#color16').checked,
+    stretch:  $('#stretch').checked,
+    ss:       $('#ss').value.trim(),
+    dur:      $('#dur').value.trim(),
+  };
+}
+function buildVF(o){
+  let vf=`fps=${o.fps},`;
+  vf += o.stretch ? 'scale=256:192'
+      : 'scale=256:192:force_original_aspect_ratio=decrease,pad=256:192:(ow-iw)/2:(oh-ih)/2:color=black';
+  if(o.color16) vf+=',format=rgb565';
+  vf+=',format=yuv420p';
+  return vf;
+}
+async function cleanup(inst,names){ for(const n of names){ try{ await inst.deleteFile(n); }catch(e){} } }
+
+async function convert(){
+  const o=opts();
+  $('#go').disabled=true; $('#selftest').disabled=true;
+  $('#dl').style.display='none';
+  const t0=performance.now();
+  try{
+    const inst=await getFF();
+    const trim=[]; if(o.ss) trim.push('-ss',o.ss); if(o.dur) trim.push('-t',o.dur);
+
+    setStatus('Loading video into engine…'); setProg(0);
+    await inst.writeFile('input', new Uint8Array(await chosen.arrayBuffer()));
+
+    // ---- video: MPEG-1 elementary stream, 256x192 ----
+    setStatus('Encoding video (MPEG‑1 256×192)…  this is the slow part.');
+    await inst.exec([...trim,'-i','input','-an','-vf',buildVF(o),
+      '-r',String(o.fps),'-c:v','mpeg1video','-b:v',o.vbr+'k','-g','15',
+      '-strict','experimental','-f','mpeg1video','video.m1v']);
+    const video=await inst.readFile('video.m1v');
+    log(`video.m1v = ${video.length} bytes`);
+
+    // ---- audio ----
+    let audio, channelsField, sampleRate;
+    setProg(0);
+    if(o.version===0){
+      sampleRate=o.rate; channelsField=2;
+      setStatus('Encoding audio (16‑bit PCM stereo)…');
+      await inst.exec([...trim,'-i','input','-vn','-ar',String(sampleRate),'-ac','2',
+        '-f','s16le','audio.pcm']);
+      audio=await inst.readFile('audio.pcm');
+    }else{
+      sampleRate=(o.rate===32768?32000:o.rate); channelsField=0;
+      setStatus('Encoding audio (MP2 stereo)…');
+      await inst.exec([...trim,'-i','input','-vn','-ar',String(sampleRate),'-ac','2',
+        '-c:a','mp2','-b:a','128k','-f','mp2','audio.mp2']);
+      audio=await inst.readFile('audio.mp2');
+    }
+    log(`audio = ${audio.length} bytes @ ${sampleRate} Hz`);
+
+    // ---- thumbnail (DPG4) ----
+    let thumb=null;
+    if(o.version===4){
+      setStatus('Grabbing thumbnail…');
+      const at = o.ss || '00:00:01';
+      await inst.exec(['-ss',at,'-i','input','-frames:v','1',
+        '-vf','scale=256:192:force_original_aspect_ratio=decrease,pad=256:192:(ow-iw)/2:(oh-ih)/2,format=rgb24',
+        '-f','rawvideo','thumb.rgb']);
+      const rgb=await inst.readFile('thumb.rgb');
+      thumb=rgbToThumb(rgb);
+    }
+
+    // ---- pack ----
+    setStatus('Packing .dpg container…');
+    const frames=countPictures(video);
+    const gop=(o.version>=2)?buildGop(video):null;
+    log(`frames=${frames}` + (gop?`, gop entries=${gop.length/8}`:''));
+    const blob=assembleDPG({version:o.version,frames,fps:o.fps,sampleRate,channelsField,audio,video,thumb,gop});
+
+    await cleanup(inst,['input','video.m1v','audio.pcm','audio.mp2','thumb.rgb']);
+
+    const base=(chosen.name.replace(/\.[^.]+$/,''))||'video';
+    const url=URL.createObjectURL(blob);
+    const dl=$('#dl'); dl.href=url; dl.download=base+'.dpg';
+    dl.style.display=''; $('#go').style.display='none';
+    setProg(1);
+    const secs=((performance.now()-t0)/1000).toFixed(0);
+    setStatus(`Done in ${secs}s — ${(blob.size/1048576).toFixed(1)} MB. Click download, then copy it to your card.`);
+    log('DPG'+o.version+' written: '+blob.size+' bytes ✔');
+  }catch(err){
+    console.error(err);
+    log('ERROR: '+(err&&err.message?err.message:err));
+    setStatus('Conversion failed — see log.');
+    $('#go').style.display=''; $('#go').textContent='Convert to .dpg';
+  }finally{
+    $('#go').disabled=false; $('#selftest').disabled=false;
+  }
+}
+$('#go').onclick=()=>{ if(chosen) convert(); };
+$('#clearlog').onclick=()=>{ logEl.textContent=''; firstLog=true;
+  logEl.textContent='Log cleared.'; firstLog=true; };
+
+/* ---- Self test: confirm the DS codecs exist in this browser ------------- */
+$('#selftest').onclick=async()=>{
+  $('#selftest').disabled=true; $('#go').disabled=true; setProg(0);
+  try{
+    const inst=await getFF();
+    setStatus('Self‑test: MPEG‑1 video…');
+    await inst.exec(['-f','lavfi','-i','testsrc=size=256x192:rate=15:duration=1',
+      '-an','-c:v','mpeg1video','-strict','experimental','-f','mpeg1video','t.m1v']);
+    const a=(await inst.readFile('t.m1v')).length;
+    setStatus('Self‑test: 16‑bit PCM…');
+    await inst.exec(['-f','lavfi','-i','sine=frequency=440:duration=1',
+      '-ac','2','-ar','32768','-f','s16le','t.pcm']);
+    const b=(await inst.readFile('t.pcm')).length;
+    setStatus('Self‑test: MP2…');
+    await inst.exec(['-f','lavfi','-i','sine=frequency=440:duration=1',
+      '-ac','2','-ar','32000','-c:a','mp2','-b:a','128k','-f','mp2','t.mp2']);
+    const c=(await inst.readFile('t.mp2')).length;
+    await cleanup(inst,['t.m1v','t.pcm','t.mp2']);
+    const ok = a>0&&b>0&&c>0;
+    log(`self-test: mpeg1video=${a}B  pcm_s16le=${b}B  mp2=${c}B`);
+    setStatus(ok? '✅ All DS codecs work in your browser — you\'re good to convert.'
+               : '❌ A codec returned no data. See log.');
+  }catch(err){
+    log('SELFTEST ERROR: '+(err&&err.message?err.message:err));
+    setStatus('❌ Self‑test failed — see log.');
+  }finally{
+    $('#selftest').disabled=false; $('#go').disabled=!chosen;
+  }
+};
+</script>
+</body>
+</html>
