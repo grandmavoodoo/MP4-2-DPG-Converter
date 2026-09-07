@@ -7,7 +7,7 @@ heavy lifting (fast, handles full-length movies) and assembles the .dpg containe
 itself. The container format is byte-for-byte the same as the HTML tool and matches
 the dpg4x / dpgconv reference converters.
 
-  Video : MPEG-1, 256x192 (fills the screen by default; --letterbox / --stretch)
+  Video : MPEG-1, 256x192 (whole frame fit with black bars; --fill / --stretch)
   Audio : 16-bit PCM stereo (DPG0) or MP2 stereo (DPG2/DPG4)
   Output: DPG0 (classic Moonshell 1.x), DPG2 (+seek), or DPG4 (+thumbnail, Moonshell 2)
 
@@ -17,7 +17,11 @@ Examples
   python dpg-convert.py clip.mp4 -s 00:01:30 -t 120 -o out.dpg
   python dpg-convert.py *.mp4 -o dpg_out/          # batch
 """
-import argparse, os, sys, struct, shutil, subprocess, tempfile, glob
+import argparse, os, sys, struct, shutil, subprocess, tempfile, glob, time
+
+VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".mpg", ".mpeg",
+              ".wmv", ".flv", ".ts", ".m2ts", ".3gp", ".ogv")
+AUTO_FOLDER = "Movies"
 
 MP2_RATES = {48000, 44100, 32000, 24000, 22050, 16000}
 
@@ -226,11 +230,12 @@ def geom(mode):
     """256x192 geometry filter for the chosen fit mode."""
     if mode == "stretch":                        # distort to fill
         return "scale=256:192"
-    if mode == "letterbox":                       # fit inside, black bars
-        return ("scale=256:192:force_original_aspect_ratio=decrease,"
-                "pad=256:192:(ow-iw)/2:(oh-ih)/2:color=black")
-    # fill (default): scale to cover the screen, then centre-crop the overflow
-    return "scale=256:192:force_original_aspect_ratio=increase,crop=256:192"
+    if mode == "fill":                            # scale up to cover, crop overflow
+        return "scale=256:192:force_original_aspect_ratio=increase,crop=256:192"
+    # letterbox (default): shrink the whole frame to fit, pad with black bars
+    # (nothing is cropped off the sides)
+    return ("scale=256:192:force_original_aspect_ratio=decrease,"
+            "pad=256:192:(ow-iw)/2:(oh-ih)/2:color=black")
 
 def build_vf(fps, mode, color16):
     vf = "fps=%d,%s" % (fps, geom(mode))
@@ -252,7 +257,7 @@ def convert_one(inp, outp, o, ff, fp):
         print("  frame rate: %d fps (matched to source)" % fps)
     else:
         fps = int(o.fps)
-    mode = "stretch" if o.stretch else ("letterbox" if o.letterbox else "fill")
+    mode = "stretch" if o.stretch else ("fill" if o.fill else "letterbox")
     audio_codec = o.audio or ("pcm" if version == 0 else "mp2")
     if audio_codec == "pcm":
         sample_rate = o.rate or 32768
@@ -348,6 +353,32 @@ def _time_to_sec(t):
 # --------------------------------------------------------------------------- #
 #  CLI
 # --------------------------------------------------------------------------- #
+def is_video(path):
+    return os.path.splitext(path)[1].lower() in VIDEO_EXTS
+
+def collect_inputs(patterns):
+    """Expand patterns into video files. A folder yields the videos inside it,
+    a glob is expanded, a plain path is kept as-is (missing files are reported)."""
+    files, seen = [], set()
+    def add(f):
+        k = os.path.abspath(f)
+        if k not in seen:
+            seen.add(k); files.append(f)
+    for pat in patterns:
+        if os.path.isdir(pat):
+            for name in sorted(os.listdir(pat)):
+                full = os.path.join(pat, name)
+                if os.path.isfile(full) and is_video(full):
+                    add(full)
+        else:
+            matches = sorted(glob.glob(pat))
+            if matches:
+                for m in matches:
+                    add(m)
+            else:
+                add(pat)
+    return files
+
 def out_path_for(inp, o, multi):
     base = os.path.splitext(os.path.basename(inp))[0] + ".dpg"
     if o.output:
@@ -357,14 +388,48 @@ def out_path_for(inp, o, multi):
         return o.output                      # single file, explicit name
     return os.path.join(os.path.dirname(os.path.abspath(inp)), base)
 
+def up_to_date(src, outp):
+    try:
+        return os.path.exists(outp) and os.path.getmtime(outp) >= os.path.getmtime(src)
+    except OSError:
+        return False
+
+def process_batch(patterns, o, ff, fp, force):
+    """One conversion pass. Returns (converted, skipped, failed, total)."""
+    files = collect_inputs(patterns)
+    missing = [f for f in files if not os.path.isfile(f)]
+    if missing:
+        sys.stderr.write("  not found: " + ", ".join(missing) + "\n")
+        files = [f for f in files if os.path.isfile(f)]
+    multi = len(files) > 1
+    converted = skipped = failed = 0
+    for f in files:
+        outp = out_path_for(f, o, multi)
+        if not force and up_to_date(f, outp):
+            skipped += 1
+            continue
+        print("\n%s" % os.path.basename(f))
+        try:
+            convert_one(f, outp, o, ff, fp)
+            converted += 1
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            failed += 1
+            sys.stderr.write("  FAILED: %s\n" % e)
+    return converted, skipped, failed, len(files)
+
 def main():
     p = argparse.ArgumentParser(
         description="Convert video to Nintendo DS .DPG (Moonshell / R4).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Defaults are tuned for Moonshell 2: DPG4 (thumbnail + fast seek),\n"
+        epilog="Run with no INPUT to auto-convert every video in a 'Movies' folder.\n"
+               "Defaults are tuned for Moonshell 2: DPG4 (thumbnail + fast seek),\n"
                "MP2 audio, and the source video's own frame rate.\n"
                "DPG0 = 16-bit PCM stereo 32768 Hz (classic Moonshell 1.x).")
-    p.add_argument("inputs", nargs="+", metavar="INPUT", help="video file(s); globs allowed")
+    p.add_argument("inputs", nargs="*", metavar="INPUT",
+                   help="video file(s), folder(s), or globs. With no INPUT, converts "
+                        "every video in a 'Movies' folder (skipping ones already done).")
     p.add_argument("-o", "--output", metavar="PATH",
                    help="output .dpg file (single input) or a directory (batch)")
     p.add_argument("-V", "--dpg-version", type=int, choices=[0, 2, 4], default=4,
@@ -378,14 +443,21 @@ def main():
     p.add_argument("--ab", type=int, default=128, help="MP2 audio kbps (default 128)")
     p.add_argument("-s", "--start", metavar="T", help="start time, e.g. 00:01:30 or 90")
     p.add_argument("-t", "--duration", metavar="T", help="duration to encode, e.g. 120 or 00:02:00")
-    p.add_argument("--letterbox", action="store_true",
-                   help="fit inside 256x192 with black bars (default fills the screen, cropping overflow)")
+    p.add_argument("--fill", action="store_true",
+                   help="fill the screen by scaling up and cropping the overflow "
+                        "(default fits the whole frame with black bars, nothing cropped)")
     p.add_argument("--stretch", action="store_true",
                    help="stretch to 256x192, ignoring aspect ratio (distorts)")
     p.add_argument("--color16", action="store_true",
                    help="quantize each frame to 16-bit color (RGB565); off by default for best quality")
     p.add_argument("--ffmpeg", help="path to ffmpeg binary")
     p.add_argument("--ffprobe", help="path to ffprobe binary")
+    p.add_argument("--force", action="store_true",
+                   help="re-convert even if an up-to-date .dpg already exists")
+    p.add_argument("--watch", action="store_true",
+                   help="keep running and auto-convert new videos as they appear")
+    p.add_argument("--interval", type=int, default=10,
+                   help="seconds between --watch scans (default 10)")
     p.add_argument("--keep-temp", action="store_true", help="keep intermediate files")
     p.add_argument("-q", "--quiet", action="store_true", help="no progress bars")
     p.add_argument("--verbose", action="store_true", help="print ffmpeg commands")
@@ -393,31 +465,52 @@ def main():
 
     ff, fp = require_ffmpeg(o)
 
-    # expand globs (helps on Windows where the shell doesn't)
-    files = []
-    for pat in o.inputs:
-        m = glob.glob(pat)
-        files.extend(m if m else [pat])
-    missing = [f for f in files if not os.path.isfile(f)]
-    if missing:
-        sys.stderr.write("ERROR: file(s) not found:\n  " + "\n  ".join(missing) + "\n")
-        sys.exit(1)
+    auto = not o.inputs
+    patterns = o.inputs if o.inputs else [AUTO_FOLDER]
 
-    multi = len(files) > 1
     print("DPG converter  |  ffmpeg: %s" % ff)
-    ok = 0
-    for f in files:
-        outp = out_path_for(f, o, multi)
-        print("\n%s" % os.path.basename(f))
+    if auto:
+        if not os.path.isdir(AUTO_FOLDER):
+            sys.stderr.write(
+                "\nNo INPUT given and no '%s' folder here:\n  %s\n\n"
+                "Make a folder named '%s', drop your videos in it, and run this again --\n"
+                "or pass a file directly:  python dpg-convert.py video.mp4\n"
+                % (AUTO_FOLDER, os.path.join(os.getcwd(), AUTO_FOLDER), AUTO_FOLDER))
+            sys.exit(1)
+        print("Auto mode: scanning the '%s' folder." % AUTO_FOLDER)
+
+    if o.watch:
+        where = patterns[0] if len(patterns) == 1 else ", ".join(patterns)
+        print("Watching '%s' every %ds -- drop videos in; press Ctrl+C to stop." %
+              (where, max(2, o.interval)))
+        first = True
         try:
-            convert_one(f, outp, o, ff, fp)
-            ok += 1
+            while True:
+                conv, skip, fail, _ = process_batch(patterns, o, ff, fp,
+                                                    force=(o.force and first))
+                if conv or fail:
+                    print("  -> %d converted, %d failed (%d already done)" % (conv, fail, skip))
+                first = False
+                time.sleep(max(2, o.interval))
         except KeyboardInterrupt:
-            sys.stderr.write("\naborted.\n"); sys.exit(130)
-        except Exception as e:
-            sys.stderr.write("  FAILED: %s\n" % e)
-    print("\nDone: %d/%d converted." % (ok, len(files)))
-    sys.exit(0 if ok == len(files) else 1)
+            sys.stderr.write("\nStopped watching.\n")
+            sys.exit(0)
+
+    try:
+        conv, skip, fail, total = process_batch(patterns, o, ff, fp, force=o.force)
+    except KeyboardInterrupt:
+        sys.stderr.write("\naborted.\n"); sys.exit(130)
+
+    if total == 0:
+        print("\nNo video files found%s." % (" in '%s'" % AUTO_FOLDER if auto else ""))
+        sys.exit(1)
+    summary = ["%d converted" % conv]
+    if skip:
+        summary.append("%d skipped (already up to date)" % skip)
+    if fail:
+        summary.append("%d failed" % fail)
+    print("\nDone: " + ", ".join(summary) + ".")
+    sys.exit(0 if fail == 0 else 1)
 
 if __name__ == "__main__":
     main()
