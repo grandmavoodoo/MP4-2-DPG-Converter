@@ -54,17 +54,37 @@ Then **open a new terminal** so it's found. The script also **auto-detects** an 
 python dpg-convert.py movie.mp4
 ```
 
-That makes `movie.dpg` next to the input, using the Moonshell 2 defaults (DPG4, MP2 audio, the source's own frame rate, fills the 256×192 screen).
+That makes `movie.dpg` next to the input, using the Moonshell 2 defaults (DPG4, MP2 audio, the source's own frame rate, whole frame fit on the 256×192 screen).
+
+### Auto-convert a whole folder (the easy way)
+
+**Easiest — no terminal needed:** double-click **`start.bat`**. It creates a `Movies` folder (if there isn't one), converts every video in it, and keeps the window open so you can read the result. You can also **drag video files or a folder straight onto `start.bat`** to convert just those.
+
+Prefer the command line? Make a folder named **`Movies`** next to the script, drop any videos into it, and run:
+
+```bash
+python dpg-convert.py
+```
+
+With no input, it converts **every video in the `Movies` folder**, writing each `.dpg` right next to its source. Videos that are already converted are **skipped**, so you can run it again any time and it only does the new ones. Then copy the `.dpg` files to your card.
+
+- **Convert new videos automatically as you add them** — leave it running and it watches the folder:
+  ```bash
+  python dpg-convert.py --watch
+  ```
+  Drop a video into `Movies`, wait a few seconds, and it converts on its own. Press **Ctrl+C** to stop.
+- **Re-do everything** (ignore the skip): add `--force`.
+- You can also point it at any folder: `python dpg-convert.py "D:\clips"`.
 
 ### All commands / options
 
 ```
-python dpg-convert.py [options] INPUT [INPUT ...]
+python dpg-convert.py [options] [INPUT ...]
 ```
 
 | Option | Default | What it does |
 |--------|---------|--------------|
-| `INPUT` | — | One or more video files (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, …). Wildcards like `*.mp4` work. |
+| `INPUT` | `Movies` folder | Video file(s), **folder(s)**, or globs (`*.mp4`). A folder converts every video inside it. With **no INPUT**, converts everything in a `Movies` folder. |
 | `-o, --output PATH` | next to input | Output `.dpg` file (single input) or a **folder** (for batches). |
 | `-V, --dpg-version {0,2,4}` | `4` | DPG version. `4` = Moonshell 2, `2` = Moonshell 1.x, `0` = classic PCM. |
 | `-a, --audio {pcm,mp2}` | mp2 (v4/v2), pcm (v0) | Force the audio codec. |
@@ -74,9 +94,12 @@ python dpg-convert.py [options] INPUT [INPUT ...]
 | `--ab KBPS` | `128` | MP2 audio bitrate. |
 | `-s, --start T` | start | Start time — `00:01:30` or seconds like `90`. |
 | `-t, --duration T` | whole video | How much to encode — `120` (seconds) or `00:02:00`. |
-| `--letterbox` | off | Fit inside 256×192 with **black bars** (keeps whole frame, no cropping). |
+| `--fill` | off | Fill the screen by scaling up and **cropping** the overflow (no black bars). |
 | `--stretch` | off | Stretch to 256×192, **ignoring aspect ratio** (distorts). |
 | `--color16` | off | Reduce each frame to 16-bit color (RGB565). Off = best quality. |
+| `--force` | off | Re-convert even if an up-to-date `.dpg` already exists. |
+| `--watch` | off | Keep running and auto-convert new videos as they appear (Ctrl+C to stop). |
+| `--interval N` | `10` | Seconds between `--watch` scans. |
 | `--ffmpeg PATH` | auto | Path to the `ffmpeg` binary. |
 | `--ffprobe PATH` | auto | Path to the `ffprobe` binary. |
 | `--keep-temp` | off | Keep the intermediate audio/video files (for debugging). |
@@ -85,10 +108,10 @@ python dpg-convert.py [options] INPUT [INPUT ...]
 
 ### How the video fits the screen
 
-The DS screen is 256×192. By default the tool **fills** it:
+The DS screen is 256×192. By default the tool **fits the whole frame** on screen:
 
-- **Fill** (default) — scales the video to cover the whole screen, then crops the overflow. No black bars, no distortion, but the edges of very wide/tall videos get cut.
-- **`--letterbox`** — shows the *entire* frame with black bars where it doesn't fit. Nothing is cropped.
+- **Fit** (default) — shrinks the video to fit inside 256×192 keeping its shape, adding black bars where needed. **Nothing is cropped** — the sides stay intact.
+- **`--fill`** — scales up to cover the whole screen and crops the overflow. No black bars, but the edges of very wide/tall videos get cut off.
 - **`--stretch`** — forces the exact frame into 256×192, squishing it. Rarely what you want.
 
 ### Examples
@@ -103,9 +126,9 @@ Just a 5-minute clip starting at 10:00:
 python dpg-convert.py movie.mp4 -s 00:10:00 -t 300 -o clip.dpg
 ```
 
-Keep the whole frame with black bars instead of cropping:
+Fill the whole screen (crop the edges) instead of black bars:
 ```bash
-python dpg-convert.py movie.mp4 --letterbox
+python dpg-convert.py movie.mp4 --fill
 ```
 
 Smaller file (lower bitrate + 15 fps):
